@@ -34,15 +34,15 @@ pub use codec::{Encode, Decode};
 #[cfg(feature = "std")]
 use error;
 use rstd::vec::Vec;
-use primitives::{AuthorityId, OpaqueMetadata};
+use primitives::{AuthorityId, OpaqueMetadata, NativeOrEncoded};
 
 
 /// Something that can be constructed to a runtime api.
 #[cfg(feature = "std")]
 pub trait ConstructRuntimeApi<Block: BlockT> {
 	/// Construct an instance of the runtime api.
-	fn construct_runtime_api<'a, T: CallRuntimeAt<Block>>(
-		call: &'a T
+	fn construct_runtime_api<'a>(
+		call: &'a CallRuntimeAt<Block>
 	) -> ApiRef<'a, Self> where Self: Sized;
 }
 
@@ -78,7 +78,8 @@ pub trait CallRuntimeAt<Block: BlockT> {
 		args: Vec<u8>,
 		changes: &mut OverlayedChanges,
 		initialised_block: &mut Option<BlockId<Block>>,
-	) -> error::Result<Vec<u8>>;
+		native_call: Option<&Fn() -> NativeOrEncoded>,
+	) -> error::Result<NativeOrEncoded>;
 
 	/// Returns the runtime version at the given block.
 	fn runtime_version_at(&self, at: &BlockId<Block>) -> error::Result<RuntimeVersion>;

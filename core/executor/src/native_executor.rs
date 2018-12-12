@@ -24,7 +24,7 @@ use codec::Decode;
 use primitives::hashing::blake2_256;
 use parking_lot::{Mutex, MutexGuard};
 use RuntimeInfo;
-use primitives::Blake2Hasher;
+use primitives::{Blake2Hasher, NativeOrEncoded};
 
 // For the internal Runtime Cache:
 // Is it compatible enough to run this natively or do we need to fall back on the WasmModule
@@ -164,7 +164,7 @@ impl<D: NativeExecutionDispatch> RuntimeInfo for NativeExecutor<D> {
 impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D> {
 	type Error = Error;
 
-	fn call<E: Externalities<Blake2Hasher>>(
+	fn call<'a, E: Externalities<Blake2Hasher>>(
 		&self,
 		ext: &mut E,
 		heap_pages: usize,
@@ -172,23 +172,67 @@ impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D
 		method: &str,
 		data: &[u8],
 		use_native: bool,
-	) -> (Result<Vec<u8>>, bool) {
+		native_call: Option<&Fn() -> NativeOrEncoded>,
+	) -> (Result<NativeOrEncoded>, bool) {
 		let mut c = RUNTIMES_CACHE.lock();
-		let (module, onchain_version) = match fetch_cached_runtime_version(&self.fallback, &mut c, ext, heap_pages, code) {
-			Ok((module, onchain_version)) => (module, onchain_version),
-			Err(_) => return (Err(ErrorKind::InvalidCode(code.into()).into()), false),
-		};
-		match (use_native, onchain_version.as_ref().map_or(false, |v| v.can_call_with(&self.native_version.runtime_version))) {
-			(_, false) => {
-				trace!(target: "executor", "Request for native execution failed (native: {}, chain: {})", self.native_version.runtime_version, onchain_version.as_ref().map_or_else(||"<None>".into(), |v| format!("{}", v)));
-				(self.fallback.call_in_wasm_module(ext, heap_pages, module, method, data), false)
+		let (module, onchain_version) =
+			match fetch_cached_runtime_version(&self.fallback, &mut c, ext, heap_pages, code) {
+				Ok((module, onchain_version)) => (module, onchain_version),
+				Err(_) => return (Err(ErrorKind::InvalidCode(code.into()).into()), false),
+			};
+
+		match
+			(
+				use_native,
+				onchain_version
+					.as_ref()
+					.map_or(false, |v| v.can_call_with(&self.native_version.runtime_version)),
+				native_call,
+			)
+		{
+			(_, false, _) => {
+				trace!(
+					target: "executor",
+					"Request for native execution failed (native: {}, chain: {})",
+					self.native_version.runtime_version,
+					onchain_version.as_ref().map_or_else(||"<None>".into(), |v| format!("{}", v))
+				);
+				(
+					self
+						.fallback
+						.call_in_wasm_module(ext, heap_pages, module, method, data)
+						.map(NativeOrEncoded::Encoded),
+					false
+				)
 			}
-			(false, _) => {
-				(self.fallback.call_in_wasm_module(ext, heap_pages, module, method, data), false)
+			(false, _, _) => {
+				(
+					self
+						.fallback
+						.call_in_wasm_module(ext, heap_pages, module, method, data)
+						.map(NativeOrEncoded::Encoded),
+					false
+				)
+			}
+			(true, true, Some(call)) => {
+				trace!(
+					target: "executor",
+					"Request for native execution with native call succeeded (native: {}, chain: {}).",
+					self.native_version.runtime_version,
+					onchain_version.as_ref().map_or_else(||"<None>".into(), |v| format!("{}", v))
+				);
+
+				let result = (call)();
+				(Ok(result), true)
 			}
 			_ => {
-				trace!(target: "executor", "Request for native execution succeeded (native: {}, chain: {})", self.native_version.runtime_version, onchain_version.as_ref().map_or_else(||"<None>".into(), |v| format!("{}", v)));
-				(D::dispatch(ext, method, data), true)
+				trace!(
+					target: "executor",
+					"Request for native execution succeeded (native: {}, chain: {})",
+					self.native_version.runtime_version,
+					onchain_version.as_ref().map_or_else(||"<None>".into(), |v| format!("{}", v))
+				);
+				(D::dispatch(ext, method, data).map(NativeOrEncoded::Encoded), true)
 			}
 		}
 	}
