@@ -224,7 +224,7 @@ impl_runtime_apis! {
 	}
 
 	impl block_builder_api::BlockBuilder<Block, ()> for Runtime {
-		fn apply_extrinsic(extrinsic: &<Block as BlockT>::Extrinsic) -> ApplyResult {
+		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyResult {
 			system::execute_transaction(extrinsic)
 		}
 

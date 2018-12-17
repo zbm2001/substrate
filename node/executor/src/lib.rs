@@ -57,8 +57,9 @@ mod tests {
 	use keyring::Keyring;
 	use runtime_support::{Hashable, StorageValue, StorageMap};
 	use state_machine::{CodeExecutor, Externalities, TestExternalities};
-	use primitives::{twox_128, Blake2Hasher, ChangesTrieConfiguration,
-		ed25519::{Public, Pair}};
+	use primitives::{
+		twox_128, Blake2Hasher, ChangesTrieConfiguration, ed25519::{Public, Pair}, NeverNativeValue
+	};
 	use node_primitives::{Hash, BlockNumber, AccountId};
 	use runtime_primitives::traits::{Header as HeaderT, Digest as DigestT};
 	use runtime_primitives::{generic, generic::Era, ApplyOutcome, ApplyError, ApplyResult, Perbill};
@@ -134,10 +135,26 @@ mod tests {
 			twox_128(&<system::BlockHash<Runtime>>::key_for(0)).to_vec() => vec![0u8; 32]
 		]);
 
-		let r = executor().call(&mut t, 8, BLOATY_CODE, "Core_initialise_block", &vec![].and(&from_block_number(1u64)), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			BLOATY_CODE,
+			"Core_initialise_block",
+			&vec![].and(&from_block_number(1u64)),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
-		let v = executor().call(&mut t, 8, BLOATY_CODE, "BlockBuilder_apply_extrinsic", &vec![].and(&xt()), true).0.unwrap();
-		let r = ApplyResult::decode(&mut &v[..]).unwrap();
+		let v = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			BLOATY_CODE,
+			"BlockBuilder_apply_extrinsic",
+			&vec![].and(&xt()),
+			true,
+			None,
+		).0.unwrap();
+		let r = ApplyResult::decode(&mut &v.as_encoded()[..]).unwrap();
 		assert_eq!(r, Err(ApplyError::CantPay));
 	}
 
@@ -155,10 +172,26 @@ mod tests {
 			twox_128(&<system::BlockHash<Runtime>>::key_for(0)).to_vec() => vec![0u8; 32]
 		]);
 
-		let r = executor().call(&mut t, 8, COMPACT_CODE, "Core_initialise_block", &vec![].and(&from_block_number(1u64)), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"Core_initialise_block",
+			&vec![].and(&from_block_number(1u64)),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
-		let v = executor().call(&mut t, 8, COMPACT_CODE, "BlockBuilder_apply_extrinsic", &vec![].and(&xt()), true).0.unwrap();
-		let r = ApplyResult::decode(&mut &v[..]).unwrap();
+		let v = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"BlockBuilder_apply_extrinsic",
+			&vec![].and(&xt()),
+			true,
+			None,
+		).0.unwrap();
+		let r = ApplyResult::decode(&mut &v.as_encoded()[..]).unwrap();
 		assert_eq!(r, Err(ApplyError::CantPay));
 	}
 
@@ -176,9 +209,25 @@ mod tests {
 			twox_128(&<system::BlockHash<Runtime>>::key_for(0)).to_vec() => vec![0u8; 32]
 		]);
 
-		let r = executor().call(&mut t, 8, COMPACT_CODE, "Core_initialise_block", &vec![].and(&from_block_number(1u64)), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"Core_initialise_block",
+			&vec![].and(&from_block_number(1u64)),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
-		let r = executor().call(&mut t, 8, COMPACT_CODE, "BlockBuilder_apply_extrinsic", &vec![].and(&xt()), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"BlockBuilder_apply_extrinsic",
+			&vec![].and(&xt()),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
 
 		runtime_io::with_externalities(&mut t, || {
@@ -201,9 +250,25 @@ mod tests {
 			twox_128(&<system::BlockHash<Runtime>>::key_for(0)).to_vec() => vec![0u8; 32]
 		]);
 
-		let r = executor().call(&mut t, 8, BLOATY_CODE, "Core_initialise_block", &vec![].and(&from_block_number(1u64)), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			BLOATY_CODE,
+			"Core_initialise_block",
+			&vec![].and(&from_block_number(1u64)),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
-		let r = executor().call(&mut t, 8, BLOATY_CODE, "BlockBuilder_apply_extrinsic", &vec![].and(&xt()), true).0;
+		let r = executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			BLOATY_CODE,
+			"BlockBuilder_apply_extrinsic",
+			&vec![].and(&xt()),
+			true,
+			None,
+		).0;
 		assert!(r.is_ok());
 
 		runtime_io::with_externalities(&mut t, || {
@@ -387,7 +452,15 @@ mod tests {
 	fn full_native_block_import_works() {
 		let mut t = new_test_ext(false);
 
-		executor().call(&mut t, 8, COMPACT_CODE, "Core_execute_block", &block1(false).0, true).0.unwrap();
+		executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"Core_execute_block",
+			&block1(false).0,
+			true,
+			None,
+		).0.unwrap();
 
 		runtime_io::with_externalities(&mut t, || {
 			assert_eq!(Balances::total_balance(&alice()), 41);
@@ -429,7 +502,15 @@ mod tests {
 			]);
 		});
 
-		executor().call(&mut t, 8, COMPACT_CODE, "Core_execute_block", &block2().0, true).0.unwrap();
+		executor().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"Core_execute_block",
+			&block2().0,
+			true,
+			None,
+		).0.unwrap();
 
 		runtime_io::with_externalities(&mut t, || {
 			assert_eq!(Balances::total_balance(&alice()), 30);
@@ -707,13 +788,14 @@ mod tests {
 	fn native_big_block_import_succeeds() {
 		let mut t = new_test_ext(false);
 
-		Executor::new().call(
+		Executor::new().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
 			&mut t,
 			8,
 			COMPACT_CODE,
 			"Core_execute_block",
 			&block1big().0,
-			true
+			true,
+			None,
 		).0.unwrap();
 	}
 
@@ -722,13 +804,14 @@ mod tests {
 		let mut t = new_test_ext(false);
 
 		assert!(
-			Executor::new().call(
+			Executor::new().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
 				&mut t,
 				8,
 				COMPACT_CODE,
 				"Core_execute_block",
 				&block1big().0,
-				false
+				false,
+				None,
 			).0.is_err()
 		);
 	}
@@ -785,7 +868,15 @@ mod tests {
 	#[test]
 	fn full_native_block_import_works_with_changes_trie() {
 		let mut t = new_test_ext(true);
-		Executor::new().call(&mut t, 8, COMPACT_CODE, "Core_execute_block", &block1(true).0, true).0.unwrap();
+		Executor::new().call::<_, NeverNativeValue, fn() -> NeverNativeValue>(
+			&mut t,
+			8,
+			COMPACT_CODE,
+			"Core_execute_block",
+			&block1(true).0,
+			true,
+			None,
+		).0.unwrap();
 
 		assert!(t.storage_changes_root(Default::default(), 0).is_some());
 	}

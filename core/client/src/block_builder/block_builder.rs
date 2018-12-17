@@ -89,7 +89,7 @@ where
 			extrinsics: &mut Vec<Block::Extrinsic>
 		) -> error::Result<()> where T: BlockBuilderApi<Block, InherentData> {
 			api.map_api_result(|api| {
-				match api.apply_extrinsic(block_id, &xt)? {
+				match api.apply_extrinsic(block_id, xt.clone())? {
 					Ok(ApplyOutcome::Success) | Ok(ApplyOutcome::Fail) => {
 						extrinsics.push(xt);
 						Ok(())
