@@ -20,7 +20,7 @@ use wasm_executor::WasmExecutor;
 use wasmi::Module as WasmModule;
 use runtime_version::{NativeVersion, RuntimeVersion};
 use std::collections::HashMap;
-use codec::Decode;
+use codec::{Decode, Encode};
 use primitives::hashing::blake2_256;
 use parking_lot::{Mutex, MutexGuard};
 use RuntimeInfo;
@@ -164,7 +164,7 @@ impl<D: NativeExecutionDispatch> RuntimeInfo for NativeExecutor<D> {
 impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D> {
 	type Error = Error;
 
-	fn call<'a, E: Externalities<Blake2Hasher>>(
+	fn call<'a, E: Externalities<Blake2Hasher>, R: Decode + Encode + PartialEq, NC: FnOnce() -> R>(
 		&self,
 		ext: &mut E,
 		heap_pages: usize,
@@ -172,8 +172,8 @@ impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D
 		method: &str,
 		data: &[u8],
 		use_native: bool,
-		native_call: Option<&Fn() -> NativeOrEncoded>,
-	) -> (Result<NativeOrEncoded>, bool) {
+		native_call: Option<NC>,
+	) -> (Result<NativeOrEncoded<R>>, bool) {
 		let mut c = RUNTIMES_CACHE.lock();
 		let (module, onchain_version) =
 			match fetch_cached_runtime_version(&self.fallback, &mut c, ext, heap_pages, code) {
@@ -223,7 +223,7 @@ impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D
 				);
 
 				let result = (call)();
-				(Ok(result), true)
+				(Ok(NativeOrEncoded::Native(result)), true)
 			}
 			_ => {
 				trace!(
