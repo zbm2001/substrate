@@ -19,7 +19,7 @@ use state_machine::{CodeExecutor, Externalities};
 use wasm_executor::WasmExecutor;
 use wasmi::Module as WasmModule;
 use runtime_version::{NativeVersion, RuntimeVersion};
-use std::collections::HashMap;
+use std::{collections::HashMap, panic::UnwindSafe};
 use codec::{Decode, Encode};
 use primitives::hashing::blake2_256;
 use parking_lot::{Mutex, MutexGuard};
@@ -78,7 +78,7 @@ fn fetch_cached_runtime_version<'a, E: Externalities<Blake2Hasher>>(
 }
 
 fn safe_call<F, U>(f: F) -> Result<U>
-	where F: ::std::panic::UnwindSafe + FnOnce() -> U
+	where F: UnwindSafe + FnOnce() -> U
 {
 	// Substrate uses custom panic hook that terminates process on panic. Disable it for the native call.
 	let hook = ::std::panic::take_hook();
@@ -91,7 +91,7 @@ fn safe_call<F, U>(f: F) -> Result<U>
 ///
 /// If the inner closure panics, it will be caught and return an error.
 pub fn with_native_environment<F, U>(ext: &mut Externalities<Blake2Hasher>, f: F) -> Result<U>
-where F: ::std::panic::UnwindSafe + FnOnce() -> U
+where F: UnwindSafe + FnOnce() -> U
 {
 	::runtime_io::with_externalities(ext, move || safe_call(f))
 }
@@ -164,7 +164,12 @@ impl<D: NativeExecutionDispatch> RuntimeInfo for NativeExecutor<D> {
 impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D> {
 	type Error = Error;
 
-	fn call<'a, E: Externalities<Blake2Hasher>, R: Decode + Encode + PartialEq, NC: FnOnce() -> R>(
+	fn call
+	<
+		E: Externalities<Blake2Hasher>,
+		R:Decode + Encode + PartialEq,
+		NC: FnOnce() -> R + UnwindSafe
+	>(
 		&self,
 		ext: &mut E,
 		heap_pages: usize,
@@ -223,10 +228,7 @@ impl<D: NativeExecutionDispatch> CodeExecutor<Blake2Hasher> for NativeExecutor<D
 				);
 
 				(
-					with_native_environment(
-						ext,
-						::std::panic::AssertUnwindSafe(move || (call)())
-					).map(NativeOrEncoded::Native),
+					with_native_environment(ext, move || (call)()).map(NativeOrEncoded::Native),
 					true
 				)
 			}
