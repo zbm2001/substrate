@@ -27,9 +27,10 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use client;
 use client::block_builder::BlockBuilder;
+use primitives::H256;
 use runtime_primitives::Justification;
 use runtime_primitives::generic::BlockId;
-use runtime_primitives::traits::{Block as BlockT, Zero, AuthorityIdFor};
+use runtime_primitives::traits::{AuthorityIdFor, Block as BlockT, NumberFor, Zero};
 use io::SyncIo;
 use protocol::{Context, Protocol, ProtocolContext};
 use config::ProtocolConfig;
@@ -185,6 +186,14 @@ impl<B: 'static + BlockT, V: 'static + Verifier<B>> ImportQueue<B> for SyncImpor
 
 	fn import_blocks(&self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>) {
 		self.link.call(origin, blocks);
+	}
+
+	fn import_justification(
+		&self,
+		hash: B::Hash,
+		justification: Justification,
+	) -> bool {
+		self.block_import.import_justification(hash, justification).is_ok()
 	}
 }
 
@@ -374,6 +383,12 @@ impl<V: 'static + Verifier<Block>, D> Peer<V, D> {
 	/// `TestNet::sync_step` needs to be called to ensure it's propagated.
 	pub fn gossip_message(&self, topic: Hash, data: Vec<u8>, broadcast: bool) {
 		self.sync.gossip_consensus_message(&mut TestIo::new(&self.queue, None), topic, data, broadcast);
+	}
+
+	fn request_justification(&self, hash: &H256, number: NumberFor<Block>) {
+		self.executor.execute_in_context(|context| {
+			self.sync.sync().write().request_justification(hash, number, context);
+		})
 	}
 
 	/// Add blocks to the peer -- edit the block before adding
