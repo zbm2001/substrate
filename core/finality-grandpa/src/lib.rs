@@ -90,6 +90,7 @@ use client::{
 use client::blockchain::HeaderBackend;
 use codec::{Encode, Decode};
 use consensus_common::{BlockImport, Error as ConsensusError, ErrorKind as ConsensusErrorKind, ImportBlock, ImportResult, Authorities};
+use runtime_primitives::Justification;
 use runtime_primitives::traits::{
 	NumberFor, Block as BlockT, Header as HeaderT, DigestFor, ProvideRuntimeApi, Hash as HashT,
 	DigestItemFor, DigestItem,
@@ -918,9 +919,9 @@ impl<B, E, Block: BlockT<Hash=H256>, RA, PRA> BlockImport<Block>
 		});
 
 		let import_result = match import_result {
-		    Ok(ImportResult::Queued) => ImportResult::Queued,
-		    Ok(r) => return Ok(r),
-		    Err(e) => return Err(ConsensusErrorKind::ClientImport(e.to_string()).into()),
+			Ok(ImportResult::Queued) => ImportResult::Queued,
+			Ok(r) => return Ok(r),
+			Err(e) => return Err(ConsensusErrorKind::ClientImport(e.to_string()).into()),
 		};
 
 		let enacts_change = self.authority_set.inner().read().enacts_change(number, |canon_number| {
@@ -938,54 +939,84 @@ impl<B, E, Block: BlockT<Hash=H256>, RA, PRA> BlockImport<Block>
 
 		match justification {
 			Some(justification) => {
-				let justification = GrandpaJustification::decode_and_verify(
-					justification,
-					self.authority_set.set_id(),
-					&self.authority_set.current_authorities(),
-				);
-
-				let justification = match justification {
-					Err(e) => return Err(ConsensusErrorKind::ClientImport(e.to_string()).into()),
-					Ok(justification) => justification,
-				};
-
-				let result = finalize_block(
-					&*self.inner,
-					&self.authority_set,
-					hash,
-					number,
-					justification.into(),
-				);
-
-				match result {
-					Ok(_) => {
-						unreachable!("returns Ok when no authority set change should be enacted; \
-									  verified previously that finalizing the current block enacts a change; \
-									  qed;");
-					},
-					Err(ExitOrError::AuthoritiesChanged(new)) => {
-						debug!(target: "finality", "Imported justified block #{} that enacts authority set change, signalling voter.", number);
-						if let Err(e) = self.authority_set_change.unbounded_send(new) {
-							return Err(ConsensusErrorKind::ClientImport(e.to_string()).into());
-						}
-					},
-					Err(ExitOrError::Error(e)) => {
-						match e {
-							Error::Grandpa(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
-							Error::Network(error) => return Err(ConsensusErrorKind::ClientImport(error).into()),
-							Error::Blockchain(error) => return Err(ConsensusErrorKind::ClientImport(error).into()),
-							Error::Client(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
-							Error::Timer(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
-						}
-					},
-				}
+				self.import_justification(hash, number, justification, true)?;
 			},
 			None => {
 				trace!(target: "finality", "Imported unjustified block #{} that enacts authority set change, waiting for finality for enactment.", number);
+				return Ok(ImportResult::NeedsJustification);
 			}
 		}
 
 		Ok(import_result)
+	}
+
+	fn import_justification(
+		&self,
+		hash: Block::Hash,
+		number: NumberFor<Block>,
+		justification: Justification,
+	) -> Result<(), Self::Error> {
+		self.import_justification(hash, number, justification, false)
+	}
+}
+
+impl<B, E, Block: BlockT<Hash=H256>, RA, PRA>
+	GrandpaBlockImport<B, E, Block, RA, PRA> where
+		NumberFor<Block>: grandpa::BlockNumberOps,
+		B: Backend<Block, Blake2Hasher> + 'static,
+		E: CallExecutor<Block, Blake2Hasher> + 'static + Clone + Send + Sync,
+		RA: Send + Sync,
+{
+	fn import_justification(
+		&self,
+		hash: Block::Hash,
+		number: NumberFor<Block>,
+		justification: Justification,
+		enacts_change: bool,
+	) -> Result<(), ConsensusError> {
+		let justification = GrandpaJustification::decode_and_verify(
+			justification,
+			self.authority_set.set_id(),
+			&self.authority_set.current_authorities(),
+		);
+
+		let justification = match justification {
+			Err(e) => return Err(ConsensusErrorKind::ClientImport(e.to_string()).into()),
+			Ok(justification) => justification,
+		};
+
+		let result = finalize_block(
+			&*self.inner,
+			&self.authority_set,
+			hash,
+			number,
+			justification.into(),
+		);
+
+		match result {
+			Err(ExitOrError::AuthoritiesChanged(new)) => {
+				debug!(target: "finality", "Imported justification for block #{} that enacts authority set change, signalling voter.", number);
+				if let Err(e) = self.authority_set_change.unbounded_send(new) {
+					return Err(ConsensusErrorKind::ClientImport(e.to_string()).into());
+				}
+			},
+			Err(ExitOrError::Error(e)) => {
+				match e {
+					Error::Grandpa(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
+					Error::Network(error) => return Err(ConsensusErrorKind::ClientImport(error).into()),
+					Error::Blockchain(error) => return Err(ConsensusErrorKind::ClientImport(error).into()),
+					Error::Client(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
+					Error::Timer(error) => return Err(ConsensusErrorKind::ClientImport(error.to_string()).into()),
+				}
+			},
+			_ => if enacts_change {
+				unreachable!("returns Ok when no authority set change should be enacted; \
+							  verified previously that finalizing the current block enacts a change; \
+							  qed;");
+			},
+		}
+
+		Ok(())
 	}
 }
 
