@@ -27,7 +27,6 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use client;
 use client::block_builder::BlockBuilder;
-use primitives::H256;
 use runtime_primitives::Justification;
 use runtime_primitives::generic::BlockId;
 use runtime_primitives::traits::{AuthorityIdFor, Block as BlockT, NumberFor, Zero};
@@ -191,9 +190,10 @@ impl<B: 'static + BlockT, V: 'static + Verifier<B>> ImportQueue<B> for SyncImpor
 	fn import_justification(
 		&self,
 		hash: B::Hash,
+		number: NumberFor<B>,
 		justification: Justification,
 	) -> bool {
-		self.block_import.import_justification(hash, justification).is_ok()
+		self.block_import.import_justification(hash, number, justification).is_ok()
 	}
 }
 
@@ -385,7 +385,8 @@ impl<V: 'static + Verifier<Block>, D> Peer<V, D> {
 		self.sync.gossip_consensus_message(&mut TestIo::new(&self.queue, None), topic, data, broadcast);
 	}
 
-	fn request_justification(&self, hash: &H256, number: NumberFor<Block>) {
+	#[cfg(test)]
+	fn request_justification(&self, hash: &::primitives::H256, number: NumberFor<Block>) {
 		self.executor.execute_in_context(|context| {
 			self.sync.sync().write().request_justification(hash, number, context);
 		})
